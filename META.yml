@@ -16,10 +16,10 @@ name: DB-Color
 provides:
   DB::Color:
     file: lib/DB/Color.pm
-    version: 0.03
+    version: 0.04
 requires:
   Syntax::Highlight::Engine::Kate: 0.06
 resources:
   license: http://dev.perl.org/licenses/
-  repository: https://github.com/Ovid/DB-Color
-version: 0.03
+  repository: https://github.com/Ovid/DB--Color
+version: 0.04

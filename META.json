@@ -33,7 +33,7 @@
    "provides" : {
       "DB::Color" : {
          "file" : "lib/DB/Color.pm",
-         "version" : "0.03"
+         "version" : "0.04"
       }
    },
    "release_status" : "stable",
@@ -42,8 +42,8 @@
          "http://dev.perl.org/licenses/"
       ],
       "repository" : {
-         "url" : "https://github.com/Ovid/DB-Color"
+         "url" : "https://github.com/Ovid/DB--Color"
       }
    },
-   "version" : "0.03"
+   "version" : "0.04"
 }
