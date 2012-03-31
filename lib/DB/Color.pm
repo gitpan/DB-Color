@@ -4,6 +4,11 @@ use 5.008;
 use strict;
 use warnings;
 use DB::Color::Highlight;
+use IO::Handle;
+use File::Spec::Functions qw(catfile catdir);
+use Scalar::Util 'dualvar';
+use File::Find;
+use File::Path 'remove_tree';
 
 =head1 NAME
 
@@ -11,11 +16,11 @@ DB::Color - Colorize your debugger output
 
 =head1 VERSION
 
-Version 0.05
+Version 0.06
 
 =cut
 
-our $VERSION = '0.05';
+our $VERSION = '0.06';
 
 =head1 SYNOPSIS
 
@@ -31,6 +36,28 @@ Then use your debugger like normal:
 
  perl -d some_file.pl
 
+=head1 DISABLING COLOR
+
+If the NO_DB_COLOR environment variable is set to a true value, syntax
+highlighting will be disabled.
+
+=head1 WINDOWS
+
+No, sorry. It's a combination of bad Windows support for ANSI escape sequences
+and bad debugger design.
+
+=head1 PERFORMANCE
+
+Syntax highlighting the code is very, very slow. As a result, we cache the
+output files in F<$HOME/.perldbcolor>. This is done by calculating the md5 sum
+of the file contents. If the file is changed, we get a new sum. This means
+that syntax highlighting is very slow at first, but every time you hit the
+same file, assuming its unchnanged, the cached version is served first.
+
+Note that the cache files are removed after they become 30 days old without
+being used. This has merely been a naive hack for a proof of concept. Patches
+welcome.
+
 =head1 ALPHA
 
 This is only a proof of concept. In fact, it's fair to say that this code
@@ -39,10 +66,38 @@ a memory hog, as if the debugger wasn't bad enough already.
 
 =cut
 
-my $HIGHLIGHTER = DB::Color::Highlight::highlighter();
 my %COLORED;
+my $DB_BASE_DIR = catdir( $ENV{HOME}, '.perldbcolor' );
+my $DB_LOG = catfile( $DB_BASE_DIR, 'debug.log' );
+my $DEBUG;
+
+# Not documenting this because I don't guarantee stability, but you can play
+# with it if you want.
+if ( $ENV{DB_COLOR_DEBUG} ) {
+    open $DEBUG, '>>', $DB_LOG
+      or die "Cannot open $DB_LOG for appending: $!";
+    $DEBUG->autoflush(1);
+}
+
+my $HIGHLIGHTER = DB::Color::Highlight->new(
+    {
+        cache_dir => $DB_BASE_DIR,
+        debug_fh  => $DEBUG,
+    }
+);
 
 sub import {
+    return if $ENV{NO_DB_COLOR};
+    if ( 'MSWin32' eq $^O ) {
+        warn <<"END";
+DB::Color does not run under Windows because the Windows terminal is too
+broken to understand terminal color code.
+
+DB::Color does not use Win32::Console because the debugger is too broken to be
+properly extensible.
+END
+        return;
+    }
     my $old_db = \&DB::DB;
 
     my $new_DB = sub {
@@ -51,24 +106,48 @@ sub import {
             return if $pkg eq "DB" or $pkg =~ /^DB::/;
         }
         my ( $package, $filename ) = caller;
+        if ($DEBUG) {
+            print $DEBUG "In package '$package', filename '$filename'\n";
+        }
 
         # syntax highlight everything and cache it
         my $lines = $COLORED{$package}{$filename} ||= do {
             no strict 'refs';
-
-            # quick hack
             no warnings 'uninitialized';
-            my $code = join "" => @{"::_<$filename"};
             [
-                map { "$_\n" }
-                  split /\n/ => $HIGHLIGHTER->highlightText($code)
+                split /(?<=\n)/ =>
+                  $HIGHLIGHTER->highlight_text( join "" => @{"::_<$filename"} )
             ];
         };
 
-        # lie to the debugger about what the lines of code are
         {
+
+            # lie to the debugger about what the lines of code are
             no strict 'refs';
-            @{"::_<$filename"} = @$lines;
+            my $line_num = 0;
+            foreach ( @{"::_<$filename"} ) {
+
+                # uncomment these to blow your f'in mind
+                #if ( not defined ) {
+                #    use Devel::Peek;
+                #    warn "line number is $line_num";
+                #    Dump($_);
+                #}
+                # The debugger special cases the first value in ::_<$filename.
+                # It's "undef" but sometimes contains some data about the
+                # program. I don't know entirely what it is, but this solves
+                # the "off by one" bug.
+                next unless defined;    # thanks Liz! (why does this work?)
+                my $line = $lines->[ $line_num++ ];
+                next unless defined $line;    # happens when $_ = "\n"
+                my $numeric_value = 0 + $_;
+
+                # Internally, the debugger uses dualvars for each line of
+                # code. If it's numeric value is 0, then the line is not
+                # breakable. If we don't include this, no lines in the
+                # debugger are breakable.
+                $_ = dualvar $numeric_value, $line;
+            }
         }
         goto $old_db;
     };
@@ -81,6 +160,20 @@ sub import {
     return;
 }
 
+END {
+    find(
+        sub {
+
+            # delete empty files or files > 30 days old
+            if ( -f $_ && ( -z _ || -M _ > 30 ) ) {
+                unlink($_) or die "Could not unlink '$File::Find::name': $!";
+            }
+        },
+        $DB_BASE_DIR,
+    );
+    finddepth( sub { rmdir $_ if -d }, $DB_BASE_DIR );
+}
+
 1;
 
 =head1 AUTHOR
@@ -89,19 +182,17 @@ Curtis "Ovid" Poe, C<< <ovid at cpan.org> >>
 
 =head1 BUGS
 
-Please report any bugs or feature requests to C<bug-db-color at rt.cpan.org>, or through
-the web interface at L<http://rt.cpan.org/NoAuth/ReportBug.html?Queue=DB-Color>.  I will be notified, and then you'll
-automatically be notified of progress on your bug as I make changes.
-
-
-
+Please report any bugs or feature requests to C<bug-db-color at rt.cpan.org>,
+or through the web interface at
+L<http://rt.cpan.org/NoAuth/ReportBug.html?Queue=DB-Color>.  I will be
+notified, and then you'll automatically be notified of progress on your bug as
+I make changes.
 
 =head1 SUPPORT
 
 You can find documentation for this module with the perldoc command.
 
     perldoc DB::Color
-
 
 You can also look for information at:
 
@@ -125,9 +216,10 @@ L<http://search.cpan.org/dist/DB-Color/>
 
 =back
 
-
 =head1 ACKNOWLEDGEMENTS
 
+Thanks to Nick Perez, Liz, and the 2012 Perl Hackathon for helping to overcome
+some major hurdles with this module.
 
 =head1 LICENSE AND COPYRIGHT
 
