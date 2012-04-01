@@ -4,11 +4,12 @@ use 5.008;
 use strict;
 use warnings;
 use DB::Color::Highlight;
+use DB::Color::Config;
+
 use IO::Handle;
 use File::Spec::Functions qw(catfile catdir);
 use Scalar::Util 'dualvar';
 use File::Find;
-use File::Path 'remove_tree';
 
 =head1 NAME
 
@@ -16,25 +17,25 @@ DB::Color - Colorize your debugger output
 
 =head1 VERSION
 
-Version 0.06
+Version 0.07
 
 =cut
 
-our $VERSION = '0.06';
+our $VERSION = '0.07';
 
 =head1 SYNOPSIS
 
-Put the following in your $HOME/.perldb file:
+Put the following in your F<$HOME/.perldb> file:
 
- sub afterinit {
-     push @DB::typeahead, "{{v"
-       unless $DB::already_curly_curly_v++;
- }
  use DB::Color;
 
 Then use your debugger like normal:
 
  perl -d some_file.pl
+
+If you don't want a F<$HOME/.perldb> file, you can do this:
+
+ perl -MDB::Color -e some_file.pl
 
 =head1 DISABLING COLOR
 
@@ -48,15 +49,39 @@ and bad debugger design.
 
 =head1 PERFORMANCE
 
-Syntax highlighting the code is very, very slow. As a result, we cache the
-output files in F<$HOME/.perldbcolor>. This is done by calculating the md5 sum
-of the file contents. If the file is changed, we get a new sum. This means
-that syntax highlighting is very slow at first, but every time you hit the
-same file, assuming its unchnanged, the cached version is served first.
+When using the debugger and when you step into something, or continue to a
+breakpoint in a new file, the debugger may appear to hang for a moment
+(perhaps a long moment if the file is big) while the file is syntax
+highlighted and cached. The next time the debugger enters this file, the
+highlighting should be instantaneous.
 
-Note that the cache files are removed after they become 30 days old without
-being used. This has merely been a naive hack for a proof of concept. Patches
-welcome.
+Syntax highlighting the code is very slow. As a result, we cache the output
+files in F<$HOME/.perldbcolor>. This is done by calculating the md5 sum of the
+file contents. If the file is changed, we get a new sum. This means that
+syntax highlighting is very slow at first, but every time you hit the same
+file, assuming its unchanged, the cached version is served first.
+
+Note that the cache files are removed after they become 30 (but see config)
+days old without being used. This has merely been a naive hack for a proof of
+concept. Patches welcome.
+
+=head1 CONFIGURATION
+
+You can configure C<DB::Color> by creating a F<$HOME/.perldbcolorrc>
+configuration file. It looks like this:
+
+ [core]
+ 
+ # the class that will highlight the code
+ highlighter = DB::Color::Highlight
+ 
+ # Any cache file not accessed after this number of days is purged
+ cache_max_age = 30
+ 
+ # where to put the cache dir
+ cache_dir   = /users/ovid/.perldbcolor
+ 
+The above values are more or less the defaults for this module.
 
 =head1 ALPHA
 
@@ -66,9 +91,13 @@ a memory hog, as if the debugger wasn't bad enough already.
 
 =cut
 
+my $config = DB::Color::Config->read( catfile( $ENV{HOME}, '.perldbcolorrc' ) );
+
 my %COLORED;
-my $DB_BASE_DIR = catdir( $ENV{HOME}, '.perldbcolor' );
+my $DB_BASE_DIR = $config->{core}{cache_dir}
+  || catdir( $ENV{HOME}, '.perldbcolor' );
 my $DB_LOG = catfile( $DB_BASE_DIR, 'debug.log' );
+my $CACHE_MAX_AGE = $config->{core}{cache_max_age} || 30;
 my $DEBUG;
 
 # Not documenting this because I don't guarantee stability, but you can play
@@ -85,6 +114,12 @@ my $HIGHLIGHTER = DB::Color::Highlight->new(
         debug_fh  => $DEBUG,
     }
 );
+
+sub DB::afterinit {
+    no warnings 'once';
+    push @DB::typeahead => "{{v"
+      unless $DB::already_curly_curly_v++;
+}
 
 sub import {
     return if $ENV{NO_DB_COLOR};
@@ -164,13 +199,15 @@ END {
     find(
         sub {
 
-            # delete empty files or files > 30 days old
-            if ( -f $_ && ( -z _ || -M _ > 30 ) ) {
+            # delete empty files or files > $CACHE_MAX_AGE days old
+            if ( -f $_ && ( -z _ || -M _ > $CACHE_MAX_AGE ) ) {
                 unlink($_) or die "Could not unlink '$File::Find::name': $!";
             }
         },
         $DB_BASE_DIR,
     );
+    # we're not testing for failure as this is a cheap hack to delete empty
+    # directories
     finddepth( sub { rmdir $_ if -d }, $DB_BASE_DIR );
 }
 
