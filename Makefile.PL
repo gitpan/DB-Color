@@ -2,20 +2,21 @@
 use ExtUtils::MakeMaker;
 WriteMakefile
 (
-  'test' => {
-              'TESTS' => 't/*.t'
-            },
-  'PL_FILES' => {},
-  'INSTALLDIRS' => 'site',
   'NAME' => 'DB::Color',
+  'VERSION_FROM' => 'lib/DB/Color.pm',
+  'PREREQ_PM' => {
+                   'Digest::MD5' => 0,
+                   'Syntax::Highlight::Engine::Kate' => '0.06',
+                   'Term::ANSIColor' => 0,
+                   'Test::More' => 0
+                 },
+  'INSTALLDIRS' => 'site',
   'EXE_FILES' => [
                    'script/perldbsyntax'
                  ],
-  'VERSION_FROM' => 'lib/DB/Color.pm',
-  'PREREQ_PM' => {
-                   'Test::More' => 0,
-                   'Syntax::Highlight::Engine::Kate' => '0.06',
-                   'Digest::MD5' => 0
-                 }
+  'PL_FILES' => {},
+  'test' => {
+              'TESTS' => 't/*.t'
+            }
 )
 ;

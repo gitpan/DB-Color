@@ -17,11 +17,11 @@ DB::Color - Colorize your debugger output
 
 =head1 VERSION
 
-Version 0.08
+Version 0.09
 
 =cut
 
-our $VERSION = '0.08';
+our $VERSION = '0.09';
 
 =head1 SYNOPSIS
 
@@ -35,7 +35,7 @@ Then use your debugger like normal:
 
 If you don't want a F<$HOME/.perldb> file, you can do this:
 
- perl -MDB::Color -e some_file.pl
+ perl -MDB::Color -d some_file.pl
 
 =head1 DISABLING COLOR
 
